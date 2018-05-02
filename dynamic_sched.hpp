@@ -67,91 +67,39 @@ Oct. 1985.
 
 #include <pthread.h>
 
+#include <atomic>
+
+
 template <typename T>
-class DynamicScheduler {
-private:
+class DynamicContext {
+public:
    unsigned nthreads;
    T begin;
    T end;
    T step;
-   T chunkSize;
-   TaskEntry<T> *tasks;
-   TaskEntry<T> nextEntry;
-   pthread_mutex_t mutex;
-public:
-   DynamicScheduler(unsigned nthreads, T begin, T end, T step, T chunkSize);
-   ~DynamicScheduler() { delete tasks; }
-   void updateBounds(T begin, T end, T step, T chunkSize);
-   unsigned getNumThreads() { return this->nthreads; }
-   void next(unsigned threadId);
-   TaskEntry<T> *get(unsigned threadId);
+   T range;
+   std::atomic<T> nextChunkStart;
+   unsigned chunkSize;
+   unsigned numChunks;
 };
 
 template <typename T>
-DynamicScheduler<T>::DynamicScheduler(unsigned nthreads, T begin, T end, T step, T chunkSize) {
-   this->nthreads = nthreads;
-   tasks = new TaskEntry<T> [nthreads];
-   this->updateBounds(begin,end,step,chunkSize);
+void CreateDynamicContext(DynamicContext<T> *ctx, unsigned nthreads, T begin, T end, T step, unsigned chunkSize) {
+   ctx->nthreads = nthreads;
+   ctx->begin = begin;
+   ctx->end = end;
+   ctx->step = step;
+   ctx->chunkSize = chunkSize;
 
-   pthread_mutex_init(&mutex, NULL);
+   ctx->nextChunkStart = begin;
+
+   ctx->range = (T)ceil(((double)end-begin)/step);
+   ctx->numChunks = (unsigned)ceil( ((double)ctx->range)/((double)chunkSize*nthreads) );
 }
 
 template <typename T>
-void DynamicScheduler<T>::updateBounds(T begin, T end, T step, T chunkSize) {
-   this->begin = begin;
-   this->end = end;
-   this->step = step;
-   this->chunkSize = chunkSize;
-   for (unsigned threadId = 0; threadId<nthreads; threadId++) {
-      tasks[threadId].begin = begin+threadId*chunkSize*step;
-      tasks[threadId].current = tasks[threadId].begin;
-      tasks[threadId].end = begin+(threadId+1)*chunkSize*step;
-      if (tasks[threadId].end>end) tasks[threadId].end = end;
-   }
-
-   nextEntry.begin = begin+nthreads*chunkSize*step;
-   nextEntry.current = nextEntry.begin;
-   nextEntry.end = begin+(nthreads+1)*chunkSize*step;
-   if (nextEntry.end>end) nextEntry.end = end;
-}
-
-template <typename T>
-void DynamicScheduler<T>::next(unsigned threadId) {
-   TaskEntry<T> &entry = tasks[threadId];
-   entry.current += step;
-}
-
-template <typename T>
-TaskEntry<T> *DynamicScheduler<T>::get(unsigned threadId) {
-   TaskEntry<T> *nextPtr = NULL;
-
-   TaskEntry<T> &entry = tasks[threadId];
-   if (entry.current<entry.end) nextPtr = &entry;
-   else {
-
-      pthread_mutex_lock(&mutex);
-      nextEntry.begin = nextEntry.end;
-      nextEntry.current = nextEntry.begin;
-      nextEntry.end += chunkSize*step;
-      if (nextEntry.end>end) nextEntry.end = end;
-      tasks[threadId] = nextEntry;
-      pthread_mutex_unlock(&mutex);
-
-      if (tasks[threadId].current<end) nextPtr = &tasks[threadId];
-   }
-
-   return nextPtr;
-}
-
-template <typename T>
-DynamicScheduler<T> *getDynamicScheduler(unsigned nthreads, T begin, T end, T step, T chunkSize) {
-   static DynamicScheduler<T> *sched = NULL;
-   if (sched==NULL) sched = new DynamicScheduler<T>(nthreads, begin, end, step, chunkSize);
-   if (nthreads!=sched->getNumThreads()) {
-      delete sched;
-      sched = new DynamicScheduler<T>(nthreads, begin, end, step, chunkSize);
-   }else { sched->updateBounds(begin, end, step, chunkSize); }
-   return sched;
+T ScheduleNextDynamicStartPoint(DynamicContext<T> *ctx) {
+  return std::atomic_fetch_add(&ctx->nextChunkStart, (T)ctx->chunkSize*ctx->step);
 }
 
 #endif

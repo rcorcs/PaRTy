@@ -17,6 +17,9 @@
 #include <math.h>
 
 #include "../sched.h"
+#include "utils/execution_timer.h"
+unsigned num_threads = 4;
+
 
 # define NPOINTS 2000
 # define MAXITER 1000
@@ -29,35 +32,66 @@ struct d_complex{
 };
 
 
+
 class Argument {
 public:
-   DynamicScheduler<int> *sched;
+   DynamicContext<int> *ctx;
    unsigned threadId;
    int reduction;
-   int PAD[8];
 };
 
 void* threadBody(void *arg) {
    Argument *threadArg = ((Argument*)arg);
-   DynamicScheduler<int> *sched = threadArg->sched;
+   DynamicContext<int> *ctx = threadArg->ctx;
    unsigned threadId = threadArg->threadId;
-   while(TaskEntry<int> *ptr=sched->get(threadId)) {
-      for ( ; ptr->current<ptr->end; ptr->current++ ) {
-        int i = ptr->current;
 
-        for (int j=0; j<NPOINTS; j++) {
-          struct d_complex c;
-          c.r = -2.0+2.5*(double)(i)/(double)(NPOINTS)+1.0e-5;
-          c.i = 1.125*(double)(j)/(double)(NPOINTS)+1.0e-5;
-          threadArg->reduction += testpoint(c);
-        }
+   //BEGIN SHARED VARIABLES HERE
+   //END SHARED VARIABLES HERE
+
+  //UPDATE SETTINGS
+   const unsigned chunk_size = 16;
+   const int iter_step = 1; //ctx->step=iter_step
+
+   int chunk_step = ctx->chunkSize*ctx->step;
+
+   int start = 0;
+   while(1) {
+     start = ScheduleNextDynamicStartPoint(ctx);
+
+     if (start + chunk_step >= ctx->end) break;
+
+
+     for (unsigned iter_id = 0; iter_id < chunk_size; iter_id++) {
+       int iter_idx = start + iter_id*iter_step; 
+
+  //COPY ITERATOR HERE
+          int i = iter_idx;
+  //BEGIN KERNEL HERE
+           for (int j=0; j<NPOINTS; j++) {
+             struct d_complex c;
+             c.r = -2.0+2.5*(double)(i)/(double)(NPOINTS)+1.0e-5;
+             c.i = 1.125*(double)(j)/(double)(NPOINTS)+1.0e-5;
+             threadArg->reduction += testpoint(c);
+           }
+  //END KERNEL HERE
       }
-      sched->next(threadId);
 	}
    
+   for (int iter_idx = start; iter_idx<ctx->end; iter_idx += iter_step) {
+  //COPY ITERATOR HERE
+          int i = iter_idx;
+  //BEGIN KERNEL HERE
+           for (int j=0; j<NPOINTS; j++) {
+             struct d_complex c;
+             c.r = -2.0+2.5*(double)(i)/(double)(NPOINTS)+1.0e-5;
+             c.i = 1.125*(double)(j)/(double)(NPOINTS)+1.0e-5;
+             threadArg->reduction += testpoint(c);
+           }
+  //END KERNEL HERE
+   }
+
    return NULL;
 }
-
 
 int main(){
 
@@ -77,18 +111,23 @@ int main(){
      }
    }
 */
+
+   __timer_prologue();
+
    {
-      unsigned nthreads = 8;
+      unsigned nthreads = num_threads;
       int begin = 0;
       int end = NPOINTS;
       int nstep = 1;
-      int chunkSize = 16;
+      unsigned chunkSize = 16;
       int reductionIdentity = 0;
-      DynamicScheduler<int> *sched = getDynamicScheduler(nthreads,begin,end,nstep,chunkSize);
+      //DynamicScheduler<int> *sched = getDynamicScheduler(nthreads,begin,end,nstep,chunkSize);
+      DynamicContext<int> ctx;
+      CreateDynamicContext(&ctx, nthreads,begin,end,nstep,chunkSize);
       pthread_t threads[nthreads];
       Argument args[nthreads];
       for (unsigned threadId = 0; threadId<nthreads; threadId++) {
-         args[threadId].sched = sched;
+         args[threadId].ctx = &ctx;
          args[threadId].threadId = threadId;
          args[threadId].reduction = reductionIdentity;
          pthread_create(&threads[threadId],NULL,threadBody,static_cast<void*>(&args[threadId]));
@@ -103,6 +142,7 @@ int main(){
    area=2.0*2.5*1.125*(double)(NPOINTS*NPOINTS-numoutside)/(double)(NPOINTS*NPOINTS);
    error=area/(double)NPOINTS;
 
+   __timer_epilogue();
    printf("Area of Mandlebrot set = %12.8f +/- %12.8f\n",area,error);
 
 }

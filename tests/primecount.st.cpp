@@ -2,6 +2,8 @@
 #include<math.h>
 
 #include "../sched.h"
+#include "utils/execution_timer.h"
+unsigned num_threads = 4;
 
 int is_prime(long num){
 	if(num<=1) return 0;
@@ -15,22 +17,33 @@ int is_prime(long num){
 	return 1;
 }
 
+
 class Argument {
 public:
-   StaticScheduler<long> *sched;
+   StaticContext<long> *ctx;
    unsigned threadId;
    long reduction;
 };
 
 void* threadBody(void *arg) {
    Argument *threadArg = ((Argument*)arg);
-   StaticScheduler<long> *sched = threadArg->sched;
+   StaticContext<long> *ctx = threadArg->ctx;
    unsigned threadId = threadArg->threadId;
-   TaskEntry<long> entry = sched->get(threadId);
-   long step = sched->getStep();
-   for (long n = entry.begin; n<entry.end; n += step) {
-		long count_prime = is_prime(n);
-      threadArg->reduction += count_prime;
+
+   //BEGIN SHARED VARIABLES HERE
+   //END SHARED VARIABLES HERE
+
+  //UPDATE SETTINGS
+   const long iter_step = 1; //ctx->step=iter_step
+
+   TaskEntry<long> entry = ScheduleStaticEntry(ctx,threadId);
+   for (long iter_idx = entry.begin; iter_idx<entry.end; iter_idx += iter_step) {
+  //COPY ITERATOR HERE
+          long n = iter_idx;
+  //BEGIN KERNEL HERE
+          long count_prime = is_prime(n);
+          threadArg->reduction += count_prime;
+  //END KERNEL HERE
 	}
    return NULL;
 }
@@ -40,19 +53,23 @@ int main(){
 	long max_num = 5000321L;
 	long sum;
 
+   __timer_prologue();
+
 		sum = 0;//count the 2 as a prime, then start from 3
       
 		//for(int n = 0; n<max_num; n++){ //skip all even numbers
-      unsigned nthreads = 8;
+      unsigned nthreads = num_threads;
       long begin = 3;
       long end = max_num;
-      long step = 2;
+      long nstep = 2;
       long reductionIdentity = 0;
-      StaticScheduler<long> *sched = getStaticScheduler(nthreads,begin,end,step);
+      //StaticScheduler<long> *sched = getStaticScheduler(nthreads,begin,end,step);
+      StaticContext<long> ctx;
+      CreateStaticContext(&ctx, nthreads,begin,end,nstep);
       pthread_t threads[nthreads];
       Argument args[nthreads];
       for (unsigned threadId = 0; threadId<nthreads; threadId++) {
-         args[threadId].sched = sched;
+         args[threadId].ctx = &ctx;
          args[threadId].threadId = threadId;
          args[threadId].reduction = reductionIdentity;
          pthread_create(&threads[threadId],NULL,threadBody,static_cast<void*>(&args[threadId]));
@@ -61,7 +78,7 @@ int main(){
          pthread_join(threads[threadId],NULL);
          sum += args[threadId].reduction;
       }
-
+   __timer_epilogue();
 	printf("maximum number checked: %ld\n", max_num);
 	printf("number of primes: %ld\n", sum);
 

@@ -3,14 +3,15 @@
 
 
 #include "../sched.h"
+#include "utils/execution_timer.h"
+unsigned num_threads = 4;
 
 int count = 0;
 
-unsigned num_threads = 8;
 
 class Argument {
 public:
-   StaticScheduler<long long> *sched;
+   StaticContext<long long> *ctx;
    unsigned threadId;
    double reduction;
    double step;
@@ -18,18 +19,27 @@ public:
 
 void* threadBody(void *arg) {
    Argument *threadArg = ((Argument*)arg);
-   StaticScheduler<long long> *sched = threadArg->sched;
+   StaticContext<long long> *ctx = threadArg->ctx;
    unsigned threadId = threadArg->threadId;
+
+   //BEGIN SHARED VARIABLES HERE
    double step = threadArg->step;
-   TaskEntry<long long> entry = sched->get(threadId);
-   long long nstep = sched->getStep();
-   for (long i = entry.begin; i<entry.end; i += nstep) {
-		double x = (i + 0.5)*step;
-      threadArg->reduction += 4.0/(1.0 + x*x);;
+   //END SHARED VARIABLES HERE
+
+  //UPDATE SETTINGS
+   const long long iter_step = 1; //ctx->step=iter_step
+
+   TaskEntry<long long> entry = ScheduleStaticEntry(ctx,threadId);
+   for (long long iter_idx = entry.begin; iter_idx<entry.end; iter_idx += iter_step) {
+  //COPY ITERATOR HERE
+          long long i = iter_idx;
+  //BEGIN KERNEL HERE
+          double x = (i + 0.5)*step;
+          threadArg->reduction += 4.0/(1.0 + x*x);
+  //END KERNEL HERE
 	}
    return NULL;
 }
-
 
 void run(long long n, int print){
   double pi;
@@ -46,11 +56,13 @@ void run(long long n, int print){
       long long end = n;
       long long nstep = 1;
       double reductionIdentity = 0;
-      StaticScheduler<long long> *sched = getStaticScheduler(nthreads,begin,end,nstep);
+      //StaticScheduler<long long> *sched = getStaticScheduler(nthreads,begin,end,nstep);
+      StaticContext<long long> ctx;
+      CreateStaticContext(&ctx, nthreads,begin,end,nstep);
       pthread_t threads[nthreads];
       Argument args[nthreads];
       for (unsigned threadId = 0; threadId<nthreads; threadId++) {
-         args[threadId].sched = sched;
+         args[threadId].ctx = &ctx;
          args[threadId].threadId = threadId;
          args[threadId].reduction = reductionIdentity;
          args[threadId].step = step;
@@ -70,12 +82,26 @@ void run(long long n, int print){
 }
 
 int main(){
+
+   __timer_prologue();
+
    long long n = 100000L;
-   for(int i = 0; i<1000; i++){
+   for(int i = 0; i<100; i++){
+      run(n,1);
+   }
+   run(n,1);
+   __timer_epilogue();
+   printf("Count: %d\n",count);
+   return 0;
+}
+/*
+int main(){
+   long long n = 500000000L;
+   for(int i = 0; i<20; i++){
       run(n,1);
    }
    run(n,1);
    printf("Count: %d\n",count);
    return 0;
 }
-
+*/

@@ -46,7 +46,7 @@ WorkStealScheduler<T>::WorkStealScheduler(unsigned nthreads, T begin, T end, T s
    for (unsigned threadId = 0; threadId<nthreads; threadId++) {
       tasks[threadId].begin = begin+(threadId*size)*step;
       tasks[threadId].begin += (tasks[threadId].begin-begin)%step;
-      tasks[threadId].current = tasks[threadId].begin;
+
       tasks[threadId].end = begin+((threadId+1)*size)*step;
       tasks[threadId].end += (tasks[threadId].end-begin)%step;
       if (tasks[threadId].end>end) tasks[threadId].end = end;
@@ -65,7 +65,6 @@ void WorkStealScheduler<T>::updateBounds(T begin, T end, T step) {
    for (unsigned threadId = 0; threadId<nthreads; threadId++) {
       tasks[threadId].begin = begin+(threadId*size)*step;
       tasks[threadId].begin += (tasks[threadId].begin-begin)%step;
-      tasks[threadId].current = tasks[threadId].begin;
       tasks[threadId].end = begin+((threadId+1)*size)*step;
       tasks[threadId].end += (tasks[threadId].end-begin)%step;
       if (tasks[threadId].end>end) tasks[threadId].end = end;
@@ -75,7 +74,7 @@ void WorkStealScheduler<T>::updateBounds(T begin, T end, T step) {
 template <typename T>
 void WorkStealScheduler<T>::next(unsigned threadId) {
    TaskEntry<T> &entry = tasks[threadId];
-   entry.current += step;
+   entry.begin += step;
 }
 
 template <typename T>
@@ -85,21 +84,22 @@ T *WorkStealScheduler<T>::get(unsigned threadId) {
    if (needsLock){
       pthread_mutex_lock(&(mutex[threadId]));
       TaskEntry<T> &entry = tasks[threadId];
-      if (entry.current<entry.end) nextPtr = &entry.current;
+      if (entry.begin<entry.end) nextPtr = &entry.begin;
       pthread_mutex_unlock(&(mutex[threadId]));
    } else {
       TaskEntry<T> &entry = tasks[threadId];
-      if (entry.current<entry.end) nextPtr = &entry.current;
+      if (entry.begin<entry.end) nextPtr = &entry.begin;
    }
+
    if (nextPtr==NULL) {
       needsLock = 1;
       unsigned neighbourId;
       neighbourId = (threadId+rand()%(nthreads-1))%nthreads;
-      if (neighbourId==threadId || (tasks[neighbourId].current + 8*step) >= tasks[neighbourId].end) {
+      if (neighbourId==threadId || (tasks[neighbourId].begin + 8*step) >= tasks[neighbourId].end) {
          neighbourId = (threadId+1)%nthreads;
          //neighbourId = threadId?(threadId-1):(nthreads-1);
 
-         while (neighbourId!=threadId && (tasks[neighbourId].current + 8*step) >= tasks[neighbourId].end) {
+         while (neighbourId!=threadId && (tasks[neighbourId].begin + 8*step) >= tasks[neighbourId].end) {
             neighbourId = (neighbourId+1)%nthreads;
             //neighbourId = neighbourId?(neighbourId-1):(nthreads-1);
          }
@@ -110,7 +110,7 @@ T *WorkStealScheduler<T>::get(unsigned threadId) {
 
          TaskEntry<T> &neighbourEntry = tasks[neighbourId];
 
-         T thisBegin = neighbourEntry.current;
+         T thisBegin = neighbourEntry.begin;
          T thisEnd = neighbourEntry.end;
          T range = ceil(((double)thisEnd-thisBegin)/step);
          //if (range>0) {
@@ -126,9 +126,8 @@ T *WorkStealScheduler<T>::get(unsigned threadId) {
             TaskEntry<T> &entry = tasks[threadId];
             entry.begin = thisBegin + (size)*step;
             entry.begin += (entry.begin-thisBegin)%step;
-            entry.current = entry.begin;
             entry.end = thisEnd;
-            if (entry.current<entry.end) nextPtr = &entry.current;
+            if (entry.begin<entry.end) nextPtr = &entry.begin;
          pthread_mutex_unlock(&(mutex[threadId]));
 
       }

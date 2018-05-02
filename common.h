@@ -7,8 +7,6 @@ class TaskEntry {
 public:
    T begin;
    T end;
-   T current;
-//   int PAD[8];
 };
 
 #endif

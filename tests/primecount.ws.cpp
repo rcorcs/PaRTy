@@ -2,6 +2,8 @@
 #include<math.h>
 
 #include "../sched.h"
+#include "utils/execution_timer.h"
+unsigned num_threads = 4;
 
 int is_prime(long num){
 	if(num<=1) return 0;
@@ -41,10 +43,12 @@ int main(){
 	long max_num = 5000321L;
 	long sum;
 
+   __timer_prologue();
+
 		sum = 0;//count the 2 as a prime, then start from 3
       
 		//for(int n = 0; n<max_num; n++){ //skip all even numbers
-      unsigned nthreads = 8;
+      unsigned nthreads = num_threads;
       long begin = 3;
       long end = max_num;
       long step = 2;
@@ -62,7 +66,7 @@ int main(){
          pthread_join(threads[threadId],NULL);
          sum += args[threadId].reduction;
       }
-
+   __timer_epilogue();
 	printf("maximum number checked: %ld\n", max_num);
 	printf("number of primes: %ld\n", sum);
 

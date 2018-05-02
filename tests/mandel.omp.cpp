@@ -16,6 +16,11 @@
 #include <stdlib.h>
 #include <math.h>
 
+//#include "../sched.h"
+#include "utils/execution_timer.h"
+unsigned num_threads = 4;
+
+
 # define NPOINTS 2000
 # define MAXITER 1000
 
@@ -31,13 +36,15 @@ int main(){
    int numoutside = 0;
    double area, error, eps  = 1.0e-5;
 
+   __timer_prologue();
+
 //   Loop over grid of points in the complex plane which contains the Mandelbrot set,
 //   testing each point to see whether it is inside or outside the set.
 
 #ifdef USE_OMP_STATIC
-   #pragma omp parallel for reduction(+:numoutside) schedule(static) num_threads(8)
+   #pragma omp parallel for reduction(+:numoutside) schedule(static) num_threads(num_threads)
 #else
-   #pragma omp parallel for reduction(+:numoutside) schedule(dynamic,16) num_threads(8)
+   #pragma omp parallel for reduction(+:numoutside) schedule(dynamic,16) num_threads(num_threads)
 #endif
    for (int i=0; i<NPOINTS; i++) {
      for (int j=0; j<NPOINTS; j++) {
@@ -53,6 +60,7 @@ int main(){
    area=2.0*2.5*1.125*(double)(NPOINTS*NPOINTS-numoutside)/(double)(NPOINTS*NPOINTS);
    error=area/(double)NPOINTS;
 
+   __timer_epilogue();
    printf("Area of Mandlebrot set = %12.8f +/- %12.8f\n",area,error);
 
 }

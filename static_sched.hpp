@@ -34,61 +34,41 @@ to execute loop iterations.
 #include <stdlib.h>
 #include <math.h>
 
+#include <stdio.h>
+
+
 template <typename T>
-class StaticScheduler {
-private:
+class StaticContext {
+public:
    unsigned nthreads;
    T begin;
    T end;
    T step;
    T range;
    T size;
-public:
-   StaticScheduler(unsigned nthreads, T begin, T end, T step);
-   void updateBounds(T begin, T end, T step);
-   TaskEntry<T> get(unsigned threadId);
-   unsigned getNumThreads() { return this->nthreads; }
-   T getStep() { return this->step; }
 };
 
 template <typename T>
-StaticScheduler<T>::StaticScheduler(unsigned nthreads, T begin, T end, T step) {
-   this->nthreads = nthreads;
-   this->updateBounds(begin, end, step);
+void CreateStaticContext(StaticContext<T> *ctx, unsigned nthreads, T begin, T end, T step) {
+   ctx->nthreads = nthreads;
+   ctx->begin = begin;
+   ctx->end = end;
+   ctx->step = step;
+
+   ctx->range = ceil(((double)end-begin)/step);
+   ctx->size = (T)ceil(((double)ctx->range)/nthreads);
 }
 
 template <typename T>
-void StaticScheduler<T>::updateBounds(T begin, T end, T step) {
-   this->begin = begin;
-   this->end = end;
-   this->step = step;
-
-   this->range = ceil(((double)end-begin)/step);
-   this->size = (T)ceil(((double)range)/nthreads);
-}
-
-template <typename T>
-TaskEntry<T> StaticScheduler<T>::get(unsigned threadId) {
+TaskEntry<T> ScheduleStaticEntry(const StaticContext<T> *ctx, unsigned threadId) {
    TaskEntry<T> entry;
-   entry.begin = begin+(threadId*size)*step;
-   entry.begin += (entry.begin-begin)%step;
-   entry.current = entry.begin;
-   entry.end = begin+((threadId+1)*size)*step;
-   entry.end += (entry.end-begin)%step;
-   if (entry.end>end) entry.end = end;
+   entry.begin = ctx->begin+(threadId*ctx->size)*ctx->step;
+   entry.begin += (entry.begin-ctx->begin)%ctx->step;
+
+   entry.end = ctx->begin+((threadId+1)*ctx->size)*ctx->step;
+   entry.end += (entry.end-ctx->begin)%ctx->step;
+   if (entry.end>ctx->end) entry.end = ctx->end;
    return entry;
 }
-
-template <typename T>
-StaticScheduler<T> *getStaticScheduler(unsigned nthreads, T begin, T end, T step) {
-   static StaticScheduler<T> *sched = NULL;
-   if (sched==NULL) sched = new StaticScheduler<T>(nthreads, begin, end, step);
-   if (nthreads!=sched->getNumThreads()) {
-      delete sched;
-      sched = new StaticScheduler<T>(nthreads, begin, end, step);
-   }else { sched->updateBounds(begin, end, step); }
-   return sched;
-}
-
 
 #endif

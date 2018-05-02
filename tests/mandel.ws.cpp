@@ -17,6 +17,9 @@
 #include <math.h>
 
 #include "../sched.h"
+#include "utils/execution_timer.h"
+unsigned num_threads = 4;
+
 
 # define NPOINTS 2000
 # define MAXITER 1000
@@ -64,6 +67,8 @@ int main(){
    int numoutside = 0;
    double area, error;//, eps  = 1.0e-5;
 
+   __timer_prologue();
+
 //   Loop over grid of points in the complex plane which contains the Mandelbrot set,
 //   testing each point to see whether it is inside or outside the set.
 /*
@@ -78,7 +83,7 @@ int main(){
    }
 */
    {
-      unsigned nthreads = 8;
+      unsigned nthreads = num_threads;
       int begin = 0;
       int end = NPOINTS;
       int nstep = 1;
@@ -102,6 +107,7 @@ int main(){
    area=2.0*2.5*1.125*(double)(NPOINTS*NPOINTS-numoutside)/(double)(NPOINTS*NPOINTS);
    error=area/(double)NPOINTS;
 
+   __timer_epilogue();
    printf("Area of Mandlebrot set = %12.8f +/- %12.8f\n",area,error);
 
 }

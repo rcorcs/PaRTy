@@ -3,9 +3,10 @@
 
 
 #include "../sched.h"
+#include "utils/execution_timer.h"
+unsigned num_threads = 4;
 
 int count = 0;
-
 
 
 class Argument {
@@ -45,7 +46,7 @@ void run(long long n, int print){
   //for(long long i = 0; i < n; ++i) {
   //for(int n = 0; n<max_num; n++){ //skip all even numbers
   {
-      unsigned nthreads = 8;
+      unsigned nthreads = num_threads;
       long long begin = 0;
       long long end = n;
       long long nstep = 1;
@@ -74,12 +75,26 @@ void run(long long n, int print){
 }
 
 int main(){
+
+   __timer_prologue();
+
    long long n = 100000L;
-   for(int i = 0; i<1000; i++){
+   for(int i = 0; i<100; i++){
+      run(n,1);
+   }
+   run(n,1);
+   __timer_epilogue();
+   printf("Count: %d\n",count);
+   return 0;
+}
+/*
+int main(){
+   long long n = 500000000L;
+   for(int i = 0; i<20; i++){
       run(n,1);
    }
    run(n,1);
    printf("Count: %d\n",count);
    return 0;
 }
-
+*/
