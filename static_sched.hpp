@@ -44,7 +44,6 @@ public:
    T begin;
    T end;
    T step;
-   T range;
    T size;
 };
 
@@ -55,8 +54,8 @@ void CreateStaticContext(StaticContext<T> *ctx, unsigned nthreads, T begin, T en
    ctx->end = end;
    ctx->step = step;
 
-   ctx->range = ceil(((double)end-begin)/step);
-   ctx->size = (T)ceil(((double)ctx->range)/nthreads);
+   T range = ceil(((double)end-begin)/step);
+   ctx->size = (T)ceil(((double)range)/nthreads);
 }
 
 template <typename T>

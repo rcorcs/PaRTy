@@ -27,7 +27,6 @@ public:
    T begin;
    T end;
    T step;
-   T range;
    unsigned chunkSize;
    unsigned numChunks;
 };
@@ -40,8 +39,8 @@ void CreateChunkedContext(ChunkedContext<T> *ctx, unsigned nthreads, T begin, T 
    ctx->step = step;
    ctx->chunkSize = chunkSize;
 
-   ctx->range = (T)ceil(((double)end-begin)/step);
-   ctx->numChunks = (unsigned)ceil( ((double)ctx->range)/((double)chunkSize*nthreads) );
+   T range = (T)ceil(((double)end-begin)/step);
+   ctx->numChunks = (unsigned)ceil( ((double)range)/((double)chunkSize*nthreads) );
 }
 
 template <typename T>

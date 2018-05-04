@@ -77,7 +77,6 @@ public:
    T begin;
    T end;
    T step;
-   T range;
    std::atomic<T> nextChunkStart;
    unsigned chunkSize;
    unsigned numChunks;
@@ -93,8 +92,8 @@ void CreateDynamicContext(DynamicContext<T> *ctx, unsigned nthreads, T begin, T 
 
    ctx->nextChunkStart = begin;
 
-   ctx->range = (T)ceil(((double)end-begin)/step);
-   ctx->numChunks = (unsigned)ceil( ((double)ctx->range)/((double)chunkSize*nthreads) );
+   T range = (T)ceil(((double)end-begin)/step);
+   ctx->numChunks = (unsigned)ceil( ((double)range)/((double)chunkSize*nthreads) );
 }
 
 template <typename T>
