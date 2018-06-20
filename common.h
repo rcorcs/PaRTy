@@ -9,4 +9,6 @@ public:
    T end;
 };
 
+#define _ceil_div(_X_, _Y_) ((_X_)/(_Y_)+((_X_)%(_Y_) > 0))
+
 #endif

@@ -11,140 +11,118 @@
 
 #include <atomic>
 
-
 template <typename T>
-class WorkStealScheduler {
-private:
+class ChunkedWSContext {
+public:
    unsigned nthreads;
    T begin;
    T end;
    T step;
-   TaskEntry<T> *tasks;
+   T range;
+   unsigned chunkSize;
+   T *startPoint;
+   int *numChunks;
    pthread_mutex_t *mutex;
-   std::atomic<int> needsLock;
-public:
-   WorkStealScheduler(unsigned nthreads, T begin, T end, T step);
-   ~WorkStealScheduler() { delete tasks; delete mutex;}
-   void updateBounds(T begin, T end, T step);
-   unsigned getNumThreads() { return this->nthreads; }
-   void next(unsigned threadId);
-   T *get(unsigned threadId);
 };
 
 template <typename T>
-WorkStealScheduler<T>::WorkStealScheduler(unsigned nthreads, T begin, T end, T step) {
-   this->nthreads = nthreads;
-   this->begin = begin;
-   this->end = end;
-   this->step = step;
-   needsLock = 0;
-   tasks = new TaskEntry<T> [nthreads];
-   mutex = new pthread_mutex_t[nthreads];
+void CreateChunkedWSContext(ChunkedWSContext<T> *ctx, unsigned nthreads, T begin, T end, T step, unsigned chunkSize) {
+   ctx->nthreads = nthreads;
+   ctx->begin = begin;
+   ctx->end = end;
+   ctx->step = step;
+   ctx->chunkSize = chunkSize;
 
-   T range = ceil(((double)end-begin)/step);
-   T size = (T)ceil(((double)range)/nthreads);
+   ctx->range = _ceil_div(end-begin,step);
+   T accumChunks = 0;
+   ctx->numChunks = new int[nthreads];
+   ctx->startPoint = new T[nthreads];
+   ctx->mutex = new pthread_mutex_t[nthreads];
    for (unsigned threadId = 0; threadId<nthreads; threadId++) {
-      tasks[threadId].begin = begin+(threadId*size)*step;
-      tasks[threadId].begin += (tasks[threadId].begin-begin)%step;
-
-      tasks[threadId].end = begin+((threadId+1)*size)*step;
-      tasks[threadId].end += (tasks[threadId].end-begin)%step;
-      if (tasks[threadId].end>end) tasks[threadId].end = end;
-      pthread_mutex_init(&(mutex[threadId]), NULL);
+      ctx->numChunks[threadId] = _ceil_div(ctx->range, chunkSize*nthreads);
+      ctx->startPoint[threadId] = ctx->begin + accumChunks*ctx->chunkSize*ctx->step;
+      accumChunks += ctx->numChunks[threadId];
+      pthread_mutex_init(&(ctx->mutex[threadId]), NULL);
    }
+
 }
 
 template <typename T>
-void WorkStealScheduler<T>::updateBounds(T begin, T end, T step) {
-   this->begin = begin;
-   this->end = end;
-   this->step = step;
-   needsLock = 0;
-   T range = ceil(((double)end-begin)/step);
-   T size = (T)ceil(((double)range)/nthreads);
-   for (unsigned threadId = 0; threadId<nthreads; threadId++) {
-      tasks[threadId].begin = begin+(threadId*size)*step;
-      tasks[threadId].begin += (tasks[threadId].begin-begin)%step;
-      tasks[threadId].end = begin+((threadId+1)*size)*step;
-      tasks[threadId].end += (tasks[threadId].end-begin)%step;
-      if (tasks[threadId].end>end) tasks[threadId].end = end;
-   }
-}
+bool NextChunkedWSStart(ChunkedWSContext<T> *ctx, unsigned threadId) {
+   unsigned neighbourId;
+   neighbourId = (threadId+1)%ctx->nthreads;
+   while (neighbourId!=threadId) {
+      if (ctx->numChunks[neighbourId]>1) {
+         pthread_mutex_lock(&(ctx->mutex[neighbourId]));
+           T nChunks = ctx->numChunks[neighbourId];
+           T newChunks = nChunks/2;
+           ctx->numChunks[neighbourId] -= newChunks;
+           T start = ctx->startPoint[neighbourId] + (nChunks-newChunks)*ctx->chunkSize*ctx->step;
+         pthread_mutex_unlock(&(ctx->mutex[neighbourId]));
 
-template <typename T>
-void WorkStealScheduler<T>::next(unsigned threadId) {
-   TaskEntry<T> &entry = tasks[threadId];
-   entry.begin += step;
-}
-
-template <typename T>
-T *WorkStealScheduler<T>::get(unsigned threadId) {
-   T *nextPtr = NULL;
-
-   if (needsLock){
-      pthread_mutex_lock(&(mutex[threadId]));
-      TaskEntry<T> &entry = tasks[threadId];
-      if (entry.begin<entry.end) nextPtr = &entry.begin;
-      pthread_mutex_unlock(&(mutex[threadId]));
-   } else {
-      TaskEntry<T> &entry = tasks[threadId];
-      if (entry.begin<entry.end) nextPtr = &entry.begin;
-   }
-
-   if (nextPtr==NULL) {
-      needsLock = 1;
-      unsigned neighbourId;
-      neighbourId = (threadId+rand()%(nthreads-1))%nthreads;
-      if (neighbourId==threadId || (tasks[neighbourId].begin + 8*step) >= tasks[neighbourId].end) {
-         neighbourId = (threadId+1)%nthreads;
-         //neighbourId = threadId?(threadId-1):(nthreads-1);
-
-         while (neighbourId!=threadId && (tasks[neighbourId].begin + 8*step) >= tasks[neighbourId].end) {
-            neighbourId = (neighbourId+1)%nthreads;
-            //neighbourId = neighbourId?(neighbourId-1):(nthreads-1);
-         }
+         pthread_mutex_lock(&(ctx->mutex[threadId]));
+           ctx->numChunks[threadId] = newChunks;
+           ctx->startPoint[threadId] = start;
+         pthread_mutex_unlock(&(ctx->mutex[threadId]));
+         return true;
       }
-      if (neighbourId!=threadId) {
-         
-         pthread_mutex_lock(&(mutex[neighbourId]));
-
-         TaskEntry<T> &neighbourEntry = tasks[neighbourId];
-
-         T thisBegin = neighbourEntry.begin;
-         T thisEnd = neighbourEntry.end;
-         T range = ceil(((double)thisEnd-thisBegin)/step);
-         //if (range>0) {
-            //T size = (T)ceil(((double)range)/2);
-            //T size = (T)ceil(((double)range)/3);
-            T size = (T)ceil(((double)range)/2);
-
-            neighbourEntry.end = thisBegin + (size)*step;
-            neighbourEntry.end += (neighbourEntry.end-thisBegin)%step;
-            if (neighbourEntry.end>thisEnd) neighbourEntry.end = thisEnd;
-         pthread_mutex_lock(&(mutex[threadId]));
-         pthread_mutex_unlock(&(mutex[neighbourId]));
-            TaskEntry<T> &entry = tasks[threadId];
-            entry.begin = thisBegin + (size)*step;
-            entry.begin += (entry.begin-thisBegin)%step;
-            entry.end = thisEnd;
-            if (entry.begin<entry.end) nextPtr = &entry.begin;
-         pthread_mutex_unlock(&(mutex[threadId]));
-
-      }
+      neighbourId = (neighbourId+1)%ctx->nthreads;
    }
-
-   return nextPtr;
+   return false;
 }
 
-template <typename T>
-WorkStealScheduler<T> *getWSScheduler(unsigned nthreads, T begin, T end, T step) {
-   static WorkStealScheduler<T> *sched = NULL;
-   if (sched==NULL) sched = new WorkStealScheduler<T>(nthreads, begin, end, step);
-   if (nthreads!=sched->getNumThreads()) {
-      delete sched;
-      sched = new WorkStealScheduler<T>(nthreads, begin, end, step);
-   }else { sched->updateBounds(begin, end, step); }
-   return sched;
+#define CREATE_CHUNKED_WS_THREAD(_NAME_, _ARG_TYPE_, _ITER_STEP_, _CHUNK_SIZE_, _ITER_TYPE_, _ITER_NAME_, _VAR_DEFS_, _BODY_) \
+void* _NAME_(void *arg) { \
+   _ARG_TYPE_ *ThreadArgs = ((_ARG_TYPE_*)arg); \
+   ChunkedWSContext<_ITER_TYPE_> *_sched_ctx = ThreadArgs->ctx; \
+   unsigned _sched_threadId = ThreadArgs->threadId; \
+   _VAR_DEFS_ \
+   const unsigned _sched_chunk_size = _CHUNK_SIZE_; \
+   const _ITER_TYPE_ _sched_iter_step = _ITER_STEP_; \
+   const _ITER_TYPE_ _sched_step_factor = _sched_chunk_size*_sched_iter_step; \
+   do {\
+     while(_sched_ctx->numChunks[_sched_threadId]>0) { \
+        _ITER_TYPE_ _sched_start = _sched_ctx->startPoint[_sched_threadId]; \
+        _ITER_TYPE_ end = _sched_start + _sched_chunk_size*_sched_iter_step; \
+        end = (end>_sched_ctx->end)?_sched_ctx->end:end; \
+        for (_ITER_TYPE_ _sched_iter_id = _sched_start; _sched_iter_id<end; _sched_iter_id += _sched_iter_step) { \
+            _ITER_TYPE_ _ITER_NAME_ = _sched_iter_id; \
+            { _BODY_ } \
+        } \
+        pthread_mutex_lock(&(_sched_ctx->mutex[_sched_threadId])); \
+        _sched_ctx->startPoint[_sched_threadId] += _sched_step_factor; \
+        _sched_ctx->numChunks[_sched_threadId]--; \
+        pthread_mutex_unlock(&(_sched_ctx->mutex[_sched_threadId])); \
+     } \
+   } while(NextChunkedWSStart(_sched_ctx,_sched_threadId)); \
+   return NULL; \
 }
+
+#define LAUNCH_CHUNKED_WS_THREADS(_NUM_THREADS_, _TYPE_, _BEGIN_, _END_, _STEP_, _CHUNK_SIZE_, _ARG_TYPE_, _THREAD_NAME_, _ARGS_SETUP_, _REDUCTIONS_) \
+{ \
+      unsigned nthreads = _NUM_THREADS_; \
+      _TYPE_ begin = _BEGIN_; \
+      _TYPE_ end = _END_; \
+      _TYPE_ nstep = _STEP_; \
+      unsigned chunkSize = _CHUNK_SIZE_; \
+      ChunkedWSContext<_TYPE_> ctx; \
+      CreateChunkedWSContext(&ctx, nthreads,begin,end,nstep,chunkSize); \
+      pthread_t threads[nthreads]; \
+      _ARG_TYPE_ args[nthreads]; \
+      for (unsigned threadId = 0; threadId<nthreads; threadId++) { \
+         args[threadId].ctx = &ctx; \
+         args[threadId].threadId = threadId; \
+         _ARGS_SETUP_ \
+         pthread_create(&threads[threadId],NULL,_THREAD_NAME_,static_cast<void*>(&args[threadId])); \
+      } \
+      for (unsigned threadId = 0; threadId<nthreads; threadId++) { \
+         pthread_join(threads[threadId],NULL); \
+         _REDUCTIONS_ \
+      } \
+      delete ctx.numChunks; \
+      delete ctx.startPoint; \
+      delete ctx.mutex; \
+}
+
 
 #endif

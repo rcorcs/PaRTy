@@ -17,7 +17,7 @@
 #include <math.h>
 
 #include "../sched.h"
-#include "utils/execution_timer.h"
+#include "../execution_timer.h"
 unsigned num_threads = 4;
 
 
@@ -39,32 +39,16 @@ public:
    int reduction;
 };
 
-void* threadBody(void *arg) {
-   Argument *threadArg = ((Argument*)arg);
-   StaticContext<int> *ctx = threadArg->ctx;
-   unsigned threadId = threadArg->threadId;
-
-   //BEGIN SHARED VARIABLES HERE
-   //END SHARED VARIABLES HERE
-
-  //UPDATE SETTINGS
-   const int iter_step = 1; //ctx->step=iter_step
-
-   TaskEntry<int> entry = ScheduleStaticEntry(ctx,threadId);
-   for (int iter_idx = entry.begin; iter_idx<entry.end; iter_idx += iter_step) {
-  //COPY ITERATOR HERE
-          int i = iter_idx;
-  //BEGIN KERNEL HERE
-            for (int j=0; j<NPOINTS; j++) {
-             struct d_complex c;
-             c.r = -2.0+2.5*(double)(i)/(double)(NPOINTS)+1.0e-5;
-             c.i = 1.125*(double)(j)/(double)(NPOINTS)+1.0e-5;
-             threadArg->reduction += testpoint(c);
-           }
-  //END KERNEL HERE
-	}
-   return NULL;
-}
+CREATE_STATIC_THREAD(threadBody, Argument, 1, int, i,
+  {}
+, 
+  for (int j=0; j<NPOINTS; j++) {
+    struct d_complex c;
+    c.r = -2.0+2.5*(double)(i)/(double)(NPOINTS)+1.0e-5;
+    c.i = 1.125*(double)(j)/(double)(NPOINTS)+1.0e-5;
+    ThreadArgs->reduction += testpoint(c);
+  }
+)
 
 int main(){
 
@@ -75,39 +59,13 @@ int main(){
 
 //   Loop over grid of points in the complex plane which contains the Mandelbrot set,
 //   testing each point to see whether it is inside or outside the set.
-/*
-   #pragma omp parallel for reduction(+:numoutside)
-   for (int i=0; i<NPOINTS; i++) {
-     for (int j=0; j<NPOINTS; j++) {
-       struct d_complex c;
-       c.r = -2.0+2.5*(double)(i)/(double)(NPOINTS)+eps;
-       c.i = 1.125*(double)(j)/(double)(NPOINTS)+eps;
-       numoutside += testpoint(c);
-     }
-   }
-*/
-   {
-      unsigned nthreads = num_threads;
-      int begin = 0;
-      int end = NPOINTS;
-      int nstep = 1;
-      int reductionIdentity = 0;
-      //StaticScheduler<int> *sched = getStaticScheduler(nthreads,begin,end,nstep);
-      StaticContext<int> ctx;
-      CreateStaticContext(&ctx, nthreads,begin,end,nstep);
-      pthread_t threads[nthreads];
-      Argument args[nthreads];
-      for (unsigned threadId = 0; threadId<nthreads; threadId++) {
-         args[threadId].ctx = &ctx;
-         args[threadId].threadId = threadId;
-         args[threadId].reduction = reductionIdentity;
-         pthread_create(&threads[threadId],NULL,threadBody,static_cast<void*>(&args[threadId]));
-      }
-      for (unsigned threadId = 0; threadId<nthreads; threadId++) {
-         pthread_join(threads[threadId],NULL);
+
+   LAUNCH_STATIC_THREADS(num_threads, int, 0, NPOINTS, 1, Argument, threadBody, 
+         args[threadId].reduction = 0;
+   ,
          numoutside += args[threadId].reduction;
-      }
-  }
+   )
+
 // Calculate area of set and error estimate and output the results
    
    area=2.0*2.5*1.125*(double)(NPOINTS*NPOINTS-numoutside)/(double)(NPOINTS*NPOINTS);

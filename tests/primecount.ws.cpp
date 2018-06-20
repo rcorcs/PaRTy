@@ -2,7 +2,7 @@
 #include<math.h>
 
 #include "../sched.h"
-#include "utils/execution_timer.h"
+#include "../execution_timer.h"
 unsigned num_threads = 4;
 
 int is_prime(long num){
@@ -19,25 +19,18 @@ int is_prime(long num){
 
 class Argument {
 public:
-   WorkStealScheduler<long> *sched;
+   //WorkStealScheduler<long> *sched;
+   ChunkedWSContext<long> *ctx;
    unsigned threadId;
    long reduction;
 };
 
-void* threadBody(void *arg) {
-   Argument *threadArg = ((Argument*)arg);
-   WorkStealScheduler<long> *sched = threadArg->sched;
-   unsigned threadId = threadArg->threadId;
-   while(long *nptr=sched->get(threadId)) {
-      long n = *nptr;
-
+CREATE_CHUNKED_WS_THREAD(threadBody, Argument, 2, 8, long, n,
+   {}
+, 
 		long count_prime = is_prime(n);
-      threadArg->reduction += count_prime;
-
-      sched->next(threadId);
-	}
-   return NULL;
-}
+      ThreadArgs->reduction += count_prime;
+)
 
 int main(){
 	long max_num = 5000321L;
@@ -46,26 +39,12 @@ int main(){
    __timer_prologue();
 
 		sum = 0;//count the 2 as a prime, then start from 3
-      
-		//for(int n = 0; n<max_num; n++){ //skip all even numbers
-      unsigned nthreads = num_threads;
-      long begin = 3;
-      long end = max_num;
-      long step = 2;
-      long reductionIdentity = 0;
-      WorkStealScheduler<long> *sched = getWSScheduler(nthreads,begin,end,step);
-      pthread_t threads[nthreads];
-      Argument args[nthreads];
-      for (unsigned threadId = 0; threadId<nthreads; threadId++) {
-         args[threadId].sched = sched;
-         args[threadId].threadId = threadId;
-         args[threadId].reduction = reductionIdentity;
-         pthread_create(&threads[threadId],NULL,threadBody,static_cast<void*>(&args[threadId]));
-      }
-      for (unsigned threadId = 0; threadId<nthreads; threadId++) {
-         pthread_join(threads[threadId],NULL);
+        LAUNCH_CHUNKED_WS_THREADS(num_threads, long, 3, max_num, 2, 8, Argument, threadBody, 
+         args[threadId].reduction = 0;
+  ,
          sum += args[threadId].reduction;
-      }
+  )
+
    __timer_epilogue();
 	printf("maximum number checked: %ld\n", max_num);
 	printf("number of primes: %ld\n", sum);
